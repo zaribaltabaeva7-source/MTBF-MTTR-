@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ky">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ишенимдүүлүк эсептегичи: MTBF, MTTR, жеткиликтүүлүк</title>
+<link href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f2f5f3;--card:#fff;--ink:#16231f;--mute:#5d6b66;--line:#d5ded9;--up:#0f6b5c;--down:#d08a0e;--bad:#b3261e;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#101815;--card:#17221e;--ink:#e6efeb;--mute:#97a8a1;--line:#2a3a34;--up:#3fc2a8;--down:#e8a93a;--bad:#ff8a80}}
+:root[data-theme="dark"]{--bg:#101815;--card:#17221e;--ink:#e6efeb;--mute:#97a8a1;--line:#2a3a34;--up:#3fc2a8;--down:#e8a93a;--bad:#ff8a80}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Fira Sans",system-ui,"Segoe UI",Arial,sans-serif}
+main{max-width:860px;margin:0 auto;padding:28px 16px 48px}
+h1{font-size:clamp(1.5rem,4vw,2.1rem);line-height:1.2;margin:0 0 6px}
+h2{font-size:1.1rem;margin:0 0 12px}
+p.lead{color:var(--mute);margin:0 0 22px;max-width:62ch}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:16px}
+label{display:block;font-size:.9rem;color:var(--mute);margin-bottom:4px}
+input[type=number]{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:9px 10px}
+input:focus-visible,button:focus-visible{outline:3px solid var(--up);outline-offset:1px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+button{font:inherit;cursor:pointer;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:9px 14px}
+button.main{background:var(--up);border-color:var(--up);color:#fff;font-weight:500}
+:root[data-theme="dark"] button.main{color:#06130f}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) button.main{color:#06130f}}
+.fail{position:relative}
+.fail small{display:block;color:var(--mute);font-size:.8rem;margin-bottom:3px}
+.fail .x{position:absolute;right:4px;top:0;border:0;background:none;color:var(--mute);padding:0 4px;font-size:1.1rem}
+.res{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.m{border-left:4px solid var(--up);padding:4px 0 4px 12px}
+.m b{display:block;font-size:1.7rem;line-height:1.2}
+.m span{color:var(--mute);font-size:.88rem}
+.m.d{border-color:var(--down)}
+.bar{display:flex;height:34px;border-radius:6px;overflow:hidden;border:1px solid var(--line);margin:14px 0 6px}
+.bar i{display:block;background:var(--up);opacity:.85}
+.bar i.dn{background:var(--down);opacity:1;min-width:3px}
+.cap{font-size:.85rem;color:var(--mute)}
+.note{margin:12px 0 0;padding:10px 12px;border-radius:6px;background:var(--bg)}
+.err{color:var(--bad);font-weight:500}
+.wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:560px;font-size:.93rem}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--mute);font-weight:500}
+tr.best td{font-weight:700}
+tr.best td:first-child::after{content:" ✓ эң ишенимдүү";color:var(--up);font-weight:500;font-size:.8rem}
+</style>
+</head>
+<body>
+<main>
+<h1>Сервердин ишенимдүүлүгүн эсептөө</h1>
+<p class="lead">Байкоо мезгилин жана ар бир бузулуунун узактыгын киргизиңиз. Программа MTBF, MTTR жана жеткиликтүүлүктү эсептеп, токтоп турууну убакыт сызыгында көрсөтөт.</p>
+
+<section>
+<h2>Баштапкы маалыматтар</h2>
+<div class="grid"><div><label for="total">Байкоо мезгили (саат)</label><input id="total" type="number" min="0" step="any" value="720"></div></div>
+<h2 style="margin-top:16px">Бузулуулардын узактыгы (саат)</h2>
+<div class="grid" id="fails"></div>
+<div class="row">
+<button id="add">+ Бузулуу кошуу</button>
+<button class="main" id="calc">Эсептөө</button>
+<button id="reset">Мисалга кайтуу</button>
+</div>
+</section>
+
+<section id="out" aria-live="polite">
+<h2>Натыйжа</h2>
+<div id="msg"></div>
+</section>
+
+<section>
+<h2>Варианттар боюнча салыштыруу (720 саат)</h2>
+<div class="wrap"><table id="vt"></table></div>
+<p class="cap">Токтоп туруу убактысы бузулуулардын санына пропорционалдуу, ошондуктан бардык вариантта MTTR = 2 саат. Айырма MTBF жана жеткиликтүүлүктө гана көрүнөт. «Жүктөө» баскычы вариантты эсептегичке салат.</p>
+</section>
+</main>
+<script>
+var DEF=[2,1,3,2],VARS=[[1,720,4,8],[2,720,3,6],[3,720,5,10],[4,720,2,4],[5,720,6,12]];
+var repairs=DEF.slice();
+var $=function(i){return document.getElementById(i)};
+function f(n,d){return n.toLocaleString("ru-RU",{minimumFractionDigits:d,maximumFractionDigits:d})}
+function calc(total,rep){
+  var n=rep.length;
+  if(!(total>0)||n===0)throw new Error("Байкоо мезгили 0дөн чоң болуп, жок дегенде бир бузулуу киргизилиши керек.");
+  if(rep.some(function(t){return !(t>=0)}))throw new Error("Оңдоо убактысы терс же бош болбошу керек.");
+  var down=rep.reduce(function(a,b){return a+b},0);
+  if(down>=total)throw new Error("Токтоп туруу убактысы ("+f(down,1)+" саат) байкоо мезгилинен аз болушу керек.");
+  var up=total-down;
+  return{n:n,down:down,up:up,mtbf:up/n,mttr:down/n,a:up/total*100};
+}
+function level(a){
+  if(a>=99.99)return"Өтө жогору деңгээл (төрт тогуз). Критикалык системалар үчүн ылайыктуу.";
+  if(a>=99.9)return"Жогору деңгээл. Көпчүлүк корпоративдик системалар үчүн жетиштүү.";
+  if(a>=99)return"Орточо деңгээл. Университеттин сервери үчүн жакшыртуу сунушталат: резерв жана мониторинг.";
+  return"Төмөн деңгээл. Студенттер системага тез-тез кире албайт, резервдик сервер зарыл.";
+}
+function drawInputs(){
+  var h="";
+  repairs.forEach(function(v,i){
+    h+='<div class="fail"><small>'+(i+1)+'-бузулуу</small><input type="number" min="0" step="any" value="'+v+'" data-i="'+i+'" aria-label="'+(i+1)+'-бузулуунун узактыгы, саат">'+
+    (repairs.length>1?'<button class="x" data-del="'+i+'" aria-label="'+(i+1)+'-бузулууну өчүрүү">×</button>':'')+'</div>';
+  });
+  $("fails").innerHTML=h;
+}
+function readInputs(){
+  var els=$("fails").querySelectorAll("input");
+  repairs=Array.prototype.map.call(els,function(e){return e.value===""?NaN:parseFloat(e.value)});
+}
+function show(){
+  readInputs();
+  var total=parseFloat($("total").value),r;
+  try{r=calc(total,repairs)}catch(e){$("msg").innerHTML='<p class="err">'+e.message+'</p>';return}
+  var perDown=r.down/total*100;
+  var seg='',k=r.n,upEach=r.up/(k+1);
+  for(var i=0;i<=k;i++){
+    seg+='<i style="flex:'+upEach+'" title="Иштеген убакыт"></i>';
+    if(i<k)seg+='<i class="dn" style="flex:'+repairs[i]+'" title="'+(i+1)+'-бузулуу: '+f(repairs[i],1)+' саат"></i>';
+  }
+  $("msg").innerHTML=
+  '<div class="res">'+
+  '<div class="m"><b>'+f(r.mtbf,2)+' саат</b><span>MTBF = '+f(r.up,1)+' / '+r.n+'</span></div>'+
+  '<div class="m d"><b>'+f(r.mttr,2)+' саат</b><span>MTTR = '+f(r.down,1)+' / '+r.n+'</span></div>'+
+  '<div class="m"><b>'+f(r.a,3)+' %</b><span>Жеткиликтүүлүк = '+f(r.up,1)+' / '+f(total,1)+'</span></div></div>'+
+  '<div class="bar" role="img" aria-label="Иштөө жана токтоп туруу убакыт сызыгы">'+seg+'</div>'+
+  '<div class="cap">Жашыл: иштеген убакыт ('+f(r.up,1)+' саат). Сары: токтоп туруу ('+f(r.down,1)+' саат, '+f(perDown,2)+' %).</div>'+
+  '<p class="note"><b>Текшерүү:</b> MTBF / (MTBF + MTTR) = '+f(r.mtbf,2)+' / '+f(r.mtbf+r.mttr,2)+' = '+f(r.mtbf/(r.mtbf+r.mttr)*100,3)+' %<br>'+level(r.a)+'</p>';
+}
+function drawVars(){
+  var rows=VARS.map(function(v){var r=calc(v[1],Array(v[2]).fill(v[3]/v[2]));return{v:v,r:r}});
+  var best=Math.max.apply(null,rows.map(function(x){return x.r.a}));
+  var h='<tr><th>Вариант</th><th>Бузулуу саны</th><th>Токтоп туруу, саат</th><th>MTBF, саат</th><th>MTTR, саат</th><th>Жеткиликтүүлүк, %</th><th></th></tr>';
+  rows.forEach(function(x,i){
+    h+='<tr'+(x.r.a===best?' class="best"':'')+'><td>'+x.v[0]+'</td><td>'+x.v[2]+'</td><td>'+x.v[3]+'</td><td>'+f(x.r.mtbf,1)+'</td><td>'+f(x.r.mttr,1)+'</td><td>'+f(x.r.a,3)+'</td><td><button data-v="'+i+'">Жүктөө</button></td></tr>';
+  });
+  $("vt").innerHTML=h;
+}
+$("add").onclick=function(){readInputs();repairs.push(1);drawInputs()};
+$("calc").onclick=show;
+$("reset").onclick=function(){$("total").value=720;repairs=DEF.slice();drawInputs();show()};
+$("fails").onclick=function(e){var d=e.target.getAttribute("data-del");if(d!==null){readInputs();repairs.splice(+d,1);drawInputs();show()}};
+$("vt").onclick=function(e){var d=e.target.getAttribute("data-v");if(d!==null){var v=VARS[+d];$("total").value=v[1];repairs=Array(v[2]).fill(v[3]/v[2]);drawInputs();show();$("out").scrollIntoView({behavior:"smooth"})}};
+document.addEventListener("keydown",function(e){if(e.key==="Enter"&&e.target.tagName==="INPUT")show()});
+drawInputs();drawVars();show();
+</script>
+</body>
+</html>
